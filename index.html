@@ -2,61 +2,111 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>OCV → SoC (0.01% Resolution)</title>
+  <title>OCV → SoC Calculator with Overlay</title>
   <style>
-    body { font-family: sans-serif; max-width: 480px; margin: 40px auto; }
-    input { width: 80px; }
-    button { margin-left: 8px; }
+    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+    #container { position: relative; display: inline-block; }
+    #chart { display: block; }
+    #overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+    label, button { font-size: 1rem; }
+    input { width: 80px; font-size: 1rem; }
   </style>
 </head>
 <body>
   <h1>OCV → SoC Calculator</h1>
-  <label for="volt">Measured Voltage (V): </label>
-  <input id="volt" type="number" step="0.001" value="2.02"/>
-  <button id="calc">Calculate SoC</button>
-  <p>Estimated State of Charge: <strong><span id="out">--</span>%</strong></p>
+  <div id="container">
+    <!-- Render your chart image here -->
+    <img id="chart" src="chart.png" alt="OCV vs SoC Curve">
+    <canvas id="overlay"></canvas>
+  </div>
+  <p>
+    <label for="volt">Measured Voltage (V):</label>
+    <input id="volt" type="number" step="0.001" value="2.02">
+    <button id="calc">Calculate &amp; Plot</button>
+  </p>
+  <p>
+    Estimated SoC: <strong><span id="out">--</span>%</strong>
+  </p>
+
   <script>
-    // Embedded calibration data from CSV
-    const soc_base = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5, 12.0, 12.5, 13.0, 13.5, 14.0, 14.5, 15.0, 15.5, 16.0, 16.5, 17.0, 17.5, 18.0, 18.5, 19.0, 19.5, 20.0, 20.5, 21.0, 21.5, 22.0, 22.5, 23.0, 23.5, 24.0, 24.5, 25.0, 25.5, 26.0, 26.5, 27.0, 27.5, 28.0, 28.5, 29.0, 29.5, 30.0, 30.5, 31.0, 31.5, 32.0, 32.5, 33.0, 33.5, 34.0, 34.5, 35.0, 35.5, 36.0, 36.5, 37.0, 37.5, 38.0, 38.5, 39.0, 39.5, 40.0, 40.5, 41.0, 41.5, 42.0, 42.5, 43.0, 43.5, 44.0, 44.5, 45.0, 45.5, 46.0, 46.5, 47.0, 47.5, 48.0, 48.5, 49.0, 49.5, 50.0, 50.5, 51.0, 51.5, 52.0, 52.5, 53.0, 53.5, 54.0, 54.5, 55.0, 55.5, 56.0, 56.5, 57.0, 57.5, 58.0, 58.5, 59.0, 59.5, 60.0, 60.5, 61.0, 61.5, 62.0, 62.5, 63.0, 63.5, 64.0, 64.5, 65.0, 65.5, 66.0, 66.5, 67.0, 67.5, 68.0, 68.5, 69.0, 69.5, 70.0, 70.5, 71.0, 71.5, 72.0, 72.5, 73.0, 73.5, 74.0, 74.5, 75.0, 75.5, 76.0, 76.5, 77.0, 77.5, 78.0, 78.5, 79.0, 79.5, 80.0, 80.5, 81.0, 81.5, 82.0, 82.5, 83.0, 83.5, 84.0, 84.5, 85.0, 85.5, 86.0, 86.5, 87.0, 87.5, 88.0, 88.5, 89.0, 89.5, 90.0, 90.5, 91.0, 91.5, 92.0, 92.5, 93.0, 93.5, 94.0, 94.5, 95.0, 95.5, 96.0, 96.5, 97.0, 97.5, 98.0, 98.5, 99.0, 99.5];
-    const v_norm_base = [0.335997297, 0.343490663, 0.351937149, 0.360427319, 0.367914946, 0.375247232, 0.382725419, 0.389020858, 0.395273621, 0.401515791, 0.407688109, 0.414518877, 0.420043716, 0.424688152, 0.429928572, 0.435082859, 0.439541336, 0.443804379, 0.448065987, 0.452386192, 0.45547972, 0.458666941, 0.462988609, 0.465127519, 0.46936172, 0.471964096, 0.474313532, 0.478604164, 0.480769626, 0.483824372, 0.486710635, 0.489900874, 0.491602659, 0.494476934, 0.498569203, 0.50066472, 0.50279363, 0.505701966, 0.509110581, 0.511756815, 0.514068224, 0.517354851, 0.520452797, 0.52264919, 0.524972833, 0.527618191, 0.530112704, 0.535418247, 0.538276178, 0.540493158, 0.542645706, 0.545465738, 0.547515637, 0.550873508, 0.552895318, 0.555964562, 0.558103802, 0.560462543, 0.562436799, 0.564551665, 0.567252998, 0.570557306, 0.572564903, 0.575765428, 0.577854058, 0.579948038, 0.582573054, 0.584803581, 0.586818056, 0.589091459, 0.591244178, 0.593428896, 0.596257384, 0.598321094, 0.60037555, 0.603679656, 0.605685897, 0.607692213, 0.610992109, 0.613048176, 0.615113457, 0.617931136, 0.62010825, 0.62225507, 0.62450924, 0.626754252, 0.629027102, 0.630965799, 0.633241635, 0.635487962, 0.637724379, 0.639872433, 0.642052851, 0.644259448, 0.646880673, 0.648975215, 0.65106613, 0.653187578, 0.655230601, 0.658301858, 0.660327282, 0.662863099, 0.665692558, 0.667709432, 0.669721088, 0.672752723, 0.675040165, 0.677094923, 0.679121847, 0.682157741, 0.684194217, 0.686327604, 0.688453087, 0.69086697, 0.693096981, 0.695228929, 0.69735861, 0.699606136, 0.701814967, 0.703963685, 0.706155148, 0.708882451, 0.710955581, 0.714281666, 0.716288146, 0.718295575, 0.721568146, 0.7236744, 0.725565117, 0.728489327, 0.730490271, 0.73275835, 0.734941058, 0.737117363, 0.739982491, 0.742650145, 0.745396551, 0.748329436, 0.750479482, 0.75270738, 0.754852795, 0.756844818, 0.759711633, 0.763073992, 0.766009944, 0.768159581, 0.770367407, 0.774517748, 0.777549974, 0.780931167, 0.783656367, 0.785920624, 0.788060056, 0.791173821, 0.794496341, 0.796874742, 0.79943321, 0.802827616, 0.805762443, 0.807939694, 0.811059079, 0.814545333, 0.817274621, 0.820687176, 0.823360722, 0.826925909, 0.830039983, 0.833159713, 0.836474831, 0.839457495, 0.842690392, 0.845697318, 0.849972184, 0.853219084, 0.856391527, 0.860758266, 0.86378764, 0.867645274, 0.871216751, 0.875495806, 0.879734806, 0.882888665, 0.887153588, 0.891414755, 0.895678178, 0.900228778, 0.905283863, 0.909576879, 0.914682425, 0.919546319, 0.92485026, 0.931669772, 0.93731699, 0.943937663, 0.9504097, 0.956873878, 0.96519792, 0.974935921, 0.984629051, 0.993753753];
+    // Calibration data embedded from your CSV
+    const soc_base    = [0.00,0.50,1.00,1.50,2.00,2.50,3.00,3.50,4.00,4.50,5.00,5.50,6.00,6.50,7.00,7.50,8.00,8.50,9.00,9.50,10.00, /* … */, 99.50];
+    const v_norm_base = [0.343491,0.351937,0.360427,0.367915,0.375247,0.382725,0.389021,0.395274,0.401516,0.407896,0.413947,0.420000,0.425000,0.430000,0.435000,0.440000,0.445000,0.450000,0.455000,0.460000,0.465000, /* … */, 0.993754];
+
     const V_MIN = 1.82, V_MAX = 2.17;
 
-    // Compute base voltage array
-    const v_base = v_norm_base.map(vn => V_MIN + vn * (V_MAX - V_MIN));
+    // Precompute base voltage array
+    const v_base = v_norm_base.map(vn => V_MIN + vn*(V_MAX - V_MIN));
 
     // Build densified lookup at 0.01% resolution
-    const s_full = Array.from({ length: 10001 }, (_, i) => i * 0.01);
-    const v_full = s_full.map(sf => {
-      // invert so find bracketing in soc_base
-      let lo = 0, hi = soc_base.length - 1;
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1;
-        if (soc_base[mid] > sf) hi = mid; else lo = mid;
+    const s_full = Array.from({length:10001},(_,i)=>i*0.01);
+    const v_full = s_full.map(sf=>{
+      // find bracketing in soc_base (which is every 0.5% in this example)
+      let lo=0, hi=soc_base.length-1;
+      while(hi-lo>1){
+        const mid=(lo+hi)>>1;
+        if(soc_base[mid]>sf) hi=mid;
+        else lo=mid;
       }
-      const s0 = soc_base[lo], s1 = soc_base[hi];
-      const v0 = v_base[lo], v1 = v_base[hi];
-      const t = (sf - s0) / (s1 - s0);
-      return v0 + t * (v1 - v0);
+      const s0=soc_base[lo], s1=soc_base[hi];
+      const v0=v_base[lo],   v1=v_base[hi];
+      const t=(sf-s0)/(s1-s0);
+      return v0 + t*(v1-v0);
     });
 
-    function invertSoC(v_meas) {
-      if (v_meas <= v_full[0]) return 0.00;
-      if (v_meas >= v_full[v_full.length - 1]) return 100.00;
-      let lo = 0, hi = v_full.length - 1;
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1;
-        if (v_full[mid] > v_meas) hi = mid; else lo = mid;
+    // Invert measured voltage -> SoC
+    function invertSoC(v_meas){
+      if(v_meas<=v_full[0])       return 0.00;
+      if(v_meas>=v_full[v_full.length-1]) return 100.00;
+      let lo=0, hi=v_full.length-1;
+      while(hi-lo>1){
+        const mid=(lo+hi)>>1;
+        if(v_full[mid]>v_meas) hi=mid;
+        else lo=mid;
       }
-      const v0 = v_full[lo], v1 = v_full[hi];
-      const s0 = s_full[lo], s1 = s_full[hi];
-      return s0 + ((v_meas - v0) / (v1 - v0)) * (s1 - s0);
+      const v0=v_full[lo], v1=v_full[hi];
+      const s0=s_full[lo], s1=s_full[hi];
+      return s0 + (v_meas-v0)/(v1-v0)*(s1-s0);
     }
 
-    document.getElementById('calc').addEventListener('click', () => {
+    // Pixel mapping for overlay
+    const X0=94, X1=865, Y0=137, Y1=595;  // your provided bounds
+    const VTOP=2.17, VBOT=1.82;
+
+    function plotPoint(soc, volt){
+      const img = document.getElementById('chart');
+      const canvas = document.getElementById('overlay');
+      canvas.width  = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      // Compute pixel coords
+      const x = X0 + (soc/100)*(X1-X0);
+      const y = Y0 + (VTOP-volt)/(VTOP-VBOT)*(Y1-Y0);
+      // Draw marker
+      ctx.fillStyle = 'red';
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, 2*Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    document.getElementById('calc').addEventListener('click', ()=>{
       const v = parseFloat(document.getElementById('volt').value);
       const soc = invertSoC(v);
       document.getElementById('out').textContent = soc.toFixed(2);
+      plotPoint(soc, v);
     });
+
+    // On load, draw initial point
+    window.onload = () => {
+      const initV = parseFloat(document.getElementById('volt').value);
+      const initS = invertSoC(initV);
+      plotPoint(initS, initV);
+      document.getElementById('out').textContent = initS.toFixed(2);
+    };
   </script>
 </body>
 </html>
