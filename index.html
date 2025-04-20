@@ -14,69 +14,72 @@
       pointer-events: none;
     }
     input { width: 80px; }
+    button { margin-left: 8px; }
   </style>
 </head>
 <body>
-  <h1>OCV → SoC Calculator</h1>
 
+  <!-- 1) IMAGE FIRST -->
   <div id="container">
     <img id="chart" src="chart.png" alt="OCV vs SoC Curve">
     <canvas id="overlay"></canvas>
   </div>
 
+  <!-- 2) THEN THE TITLE & CONTROLS -->
+  <h1>OCV → SoC Calculator</h1>
+
   <p>
-    <label>Voltage (V): <input id="volt" type="number" step="0.001" value="2.02"></label>
-    <button id="calc">Calculate & Plot</button>
+    <label>Measured Voltage (V):
+      <input id="volt" type="number" step="0.001" value="2.02" disabled>
+    </label>
+    <button id="calc" disabled>Calculate &amp; Plot</button>
   </p>
   <p>Estimated SoC: <strong><span id="out">--</span>%</strong></p>
 
   <script>
-    // --- Calibration data (from your CSV), SoC in 0.5% steps and normalized voltage
-    const soc_base    = [0.00,0.50,1.00, /* … up to 99.50,100.00 */];
-    const v_norm_base = [0.343491,0.351937,0.360427, /* … up to 0.993754,1.000000 */];
+    // --- Calibration data embedded (your 0.5% steps CSV result) ---
+    const soc_base    = [0.00, 0.50, /* … up to 100.00 */];
+    const v_norm_base = [0.343491, 0.351937, /* … up to 1.000000 */];
 
     const V_MIN = 1.82, V_MAX = 2.17;
     const v_base = v_norm_base.map(vn => V_MIN + vn*(V_MAX - V_MIN));
 
-    // Build a 0.01%‑resolution lookup table
-    const s_full = Array.from({length:10001},(_,i)=>i*0.01);
+    // Build a 0.01% resolution lookup
+    const s_full = Array.from({ length: 10001 }, (_, i) => i*0.01);
     const v_full = s_full.map(sf => {
-      // binary‐search sf in soc_base
       let lo=0, hi=soc_base.length-1;
-      while(hi-lo>1) {
+      while(hi - lo > 1) {
         const mid = (lo+hi)>>1;
         if(soc_base[mid] > sf) hi=mid;
         else lo=mid;
       }
-      const s0=soc_base[lo], s1=soc_base[hi];
-      const v0=v_base[lo],   v1=v_base[hi];
-      const t = (sf - s0)/(s1 - s0);
+      const s0=soc_base[lo], s1=soc_base[hi],
+            v0=v_base[lo],   v1=v_base[hi],
+            t = (sf - s0)/(s1 - s0);
       return v0 + (v1 - v0)*t;
     });
 
-    // Invert voltage -> SoC
-    function invertSoC(v_meas) {
-      if(v_meas <= v_full[0])       return 0.00;
-      if(v_meas >= v_full[v_full.length-1]) return 100.00;
+    function invertSoC(v) {
+      if (v <= v_full[0]) return 0.00;
+      if (v >= v_full[v_full.length-1]) return 100.00;
       let lo=0, hi=v_full.length-1;
-      while(hi-lo>1) {
-        const mid=(lo+hi)>>1;
-        if(v_full[mid] > v_meas) hi=mid;
-        else lo=mid;
+      while(hi - lo > 1) {
+        const mid = (lo+hi)>>1;
+        if(v_full[mid] > v) hi = mid;
+        else lo = mid;
       }
-      const v0=v_full[lo], v1=v_full[hi];
-      const s0=s_full[lo], s1=s_full[hi];
-      return s0 + (v_meas - v0)*(s1 - s0)/(v1 - v0);
+      const v0=v_full[lo], v1=v_full[hi],
+            s0=s_full[lo], s1=s_full[hi];
+      return s0 + (v - v0)*(s1 - s0)/(v1 - v0);
     }
 
-    // Pixel mapping constants (from your axes)
+    // Pixel‐to‐image parameters
     const X0=94, X1=865, Y0=137, Y1=595, VTOP=2.17, VBOT=1.82;
 
     const img    = document.getElementById('chart');
     const canvas = document.getElementById('overlay');
     const ctx    = canvas.getContext('2d');
 
-    // Resize canvas to match displayed image size
     function resizeCanvas() {
       const w = img.clientWidth, h = img.clientHeight;
       canvas.style.width  = w + 'px';
@@ -85,40 +88,35 @@
       canvas.height = h;
     }
 
-    // Plot a red dot at (soc, volt)
     function plotPoint(soc, volt) {
       resizeCanvas();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
 
-      // Map SoC→x pixel and Volt→y pixel using natural image coords
-      const x = X0 + (soc/100)*(X1 - X0);
-      const y = Y0 + (VTOP - volt)/(VTOP - VBOT)*(Y1 - Y0);
+      // natural image px
+      const x_nat = X0 + (soc/100)*(X1 - X0);
+      const y_nat = Y0 + (VTOP - volt)/(VTOP - VBOT)*(Y1 - Y0);
 
-      // But those are in *natural* pixels; we need to scale to displayed:
-      const scaleX = canvas.width  / img.naturalWidth;
-      const scaleY = canvas.height / img.naturalHeight;
+      // scale to displayed
+      const sx = canvas.width  / img.naturalWidth;
+      const sy = canvas.height / img.naturalHeight;
 
       ctx.beginPath();
-      ctx.arc(x*scaleX, y*scaleY, 6, 0, 2*Math.PI);
-      ctx.fillStyle = 'red';
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'white';
-      ctx.stroke();
+      ctx.arc(x_nat * sx, y_nat * sy, 6, 0, 2*Math.PI);
+      ctx.fillStyle = 'red'; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = 'white'; ctx.stroke();
     }
 
-    // Once the image loads, enable the button and do initial plot
     img.onload = () => {
-      document.getElementById('calc').disabled = false;
+      // enable UI
       document.getElementById('volt').disabled = false;
-      // initial draw
+      document.getElementById('calc').disabled = false;
+      // initial plot
       const v0 = parseFloat(document.getElementById('volt').value);
       const s0 = invertSoC(v0);
       document.getElementById('out').textContent = s0.toFixed(2);
       plotPoint(s0, v0);
     };
 
-    // On Calculate & Plot
     document.getElementById('calc').onclick = () => {
       const v = parseFloat(document.getElementById('volt').value);
       const s = invertSoC(v);
